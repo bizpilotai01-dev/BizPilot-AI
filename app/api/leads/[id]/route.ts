@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { recordActivity } from "@/lib/activity";
 import { requireWorkspace } from "@/lib/api-auth";
 import { supabaseAdmin } from "@/lib/supabase";
+import { shouldTouchLastContacted } from "@/lib/lead-search";
 import type { LeadStatus } from "@/lib/types";
 
 const allowedStatuses: LeadStatus[] = ["new", "contacted", "qualified", "proposal", "won", "lost"];
@@ -115,7 +116,9 @@ export async function PATCH(request: Request, { params }: Params) {
     return NextResponse.json({ error: "No supported fields to update" }, { status: 400 });
   }
 
-  updatePayload.last_contacted_at = new Date().toISOString();
+  if (shouldTouchLastContacted(body)) {
+    updatePayload.last_contacted_at = new Date().toISOString();
+  }
 
   const { data: currentLead, error: currentLeadError } = await supabaseAdmin!
     .from("leads")

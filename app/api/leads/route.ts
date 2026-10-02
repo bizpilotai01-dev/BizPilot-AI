@@ -3,16 +3,41 @@ import { NextResponse } from "next/server";
 import { recordActivity } from "@/lib/activity";
 import { requireWorkspace } from "@/lib/api-auth";
 import { supabaseAdmin } from "@/lib/supabase";
+import { buildLeadSearchOrFilter, isLeadStatus } from "@/lib/lead-search";
+import type { LeadStatus } from "@/lib/types";
+
+const allowedStatuses: LeadStatus[] = ["new", "contacted", "qualified", "proposal", "won", "lost"];
 
 export async function GET(request: Request) {
   const auth = await requireWorkspace(request);
   if (!auth.ok) return auth.response;
 
-  const { data, error } = await supabaseAdmin!
+  const params = new URL(request.url).searchParams;
+  const query = (params.get("q") ?? "").trim();
+  const statusParam = (params.get("status") ?? "").trim();
+
+  if (statusParam && !isLeadStatus(statusParam)) {
+    return NextResponse.json(
+      { error: `Status must be one of: ${allowedStatuses.join(", ")}` },
+      { status: 400 },
+    );
+  }
+
+  let queryBuilder = supabaseAdmin!
     .from("leads")
     .select("*")
     .eq("business_id", auth.context.businessId)
     .order("created_at", { ascending: false });
+
+  if (statusParam) {
+    queryBuilder = queryBuilder.eq("status", statusParam);
+  }
+
+  if (query) {
+    queryBuilder = queryBuilder.or(buildLeadSearchOrFilter(query));
+  }
+
+  const { data, error } = await queryBuilder;
 
   if (error) {
     return NextResponse.json({ error: "Leads could not be loaded." }, { status: 500 });

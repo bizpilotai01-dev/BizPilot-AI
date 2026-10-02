@@ -1,17 +1,25 @@
-import Image from "next/image";
+"use client";
+
+import { useId } from "react";
 
 import type { Lead, LeadStatus } from "@/lib/types";
 import { CurrencyAmount } from "./currency-amount";
-import { StatusSelect } from "./status-select";
+import { StatusSelect, statusLabels, statusOptions } from "./status-select";
 
 type PipelineTableProps = {
   leads: Lead[];
+  totalLeads: number;
   loading: boolean;
   error: string;
   onRetry: () => void;
   onAddLead: () => void;
   onStatusChange: (leadId: string, next: LeadStatus) => void;
   pendingLeadIds: string[];
+  query: string;
+  onQueryChange: (query: string) => void;
+  statusFilter: LeadStatus | "all";
+  onStatusFilterChange: (status: LeadStatus | "all") => void;
+  onClearFilters: () => void;
 };
 
 function LeadValue({ value }: { value: number }) {
@@ -30,7 +38,8 @@ function LeadIdentity({ lead }: { lead: Lead }) {
     <span className="pipeline-lead-identity">
       <span className="pipeline-lead-avatar">
         {lead.photoUrl ? (
-          <Image src={lead.photoUrl} alt="" width={40} height={40} unoptimized />
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={lead.photoUrl} alt="" width={40} height={40} />
         ) : (
           <span aria-hidden="true">{initials}</span>
         )}
@@ -43,7 +52,26 @@ function LeadIdentity({ lead }: { lead: Lead }) {
   );
 }
 
-export function PipelineTable({ leads, loading, error, onRetry, onAddLead, onStatusChange, pendingLeadIds }: PipelineTableProps) {
+export function PipelineTable({
+  leads,
+  totalLeads,
+  loading,
+  error,
+  onRetry,
+  onAddLead,
+  onStatusChange,
+  pendingLeadIds,
+  query,
+  onQueryChange,
+  statusFilter,
+  onStatusFilterChange,
+  onClearFilters,
+}: PipelineTableProps) {
+  const searchId = useId();
+  const statusId = useId();
+  const filtersActive = query.trim().length > 0 || statusFilter !== "all";
+  const filtered = filtersActive && leads.length !== totalLeads;
+
   return (
     <section aria-labelledby="pipeline-heading" className="min-w-0">
       <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
@@ -52,9 +80,81 @@ export function PipelineTable({ leads, loading, error, onRetry, onAddLead, onSta
           <p className="mt-1 text-sm leading-relaxed text-secondary">Current opportunities and next actions</p>
         </div>
         {!loading && !error && (
-          <span className="count-badge">{leads.length} {leads.length === 1 ? "lead" : "leads"} in pipeline</span>
+          <span className="count-badge" role="status" aria-live="polite">
+            {filtered ? `${leads.length} of ${totalLeads}` : totalLeads} {leads.length === 1 && !filtered ? "lead" : "leads"}
+            {filtered ? " matching" : " in pipeline"}
+          </span>
         )}
       </div>
+
+      <div className="mb-4 grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto]">
+        <div>
+          <label className="form-label" htmlFor={searchId}>Search leads</label>
+          <div className="relative">
+            <svg
+              aria-hidden="true"
+              className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-secondary"
+              viewBox="0 0 24 24"
+              width="16"
+              height="16"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <circle cx="11" cy="11" r="7" />
+              <path d="m20 20-3.5-3.5" />
+            </svg>
+            <input
+              id={searchId}
+              type="search"
+              className="form-control pl-9"
+              placeholder="Name, company, email, owner, or next action"
+              value={query}
+              onChange={(event) => onQueryChange(event.target.value)}
+              autoComplete="off"
+            />
+          </div>
+        </div>
+
+        <div>
+          <label className="form-label" htmlFor={statusId}>Stage</label>
+          <div className="status-select">
+            <select
+              id={statusId}
+              className="status-select-input"
+              value={statusFilter}
+              onChange={(event) => onStatusFilterChange(event.target.value as LeadStatus | "all")}
+            >
+              <option value="all">All stages</option>
+              {statusOptions.map((option) => (
+                <option key={option} value={option}>
+                  {statusLabels[option]}
+                </option>
+              ))}
+            </select>
+            <svg aria-hidden="true" className="status-select-chevron" viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M6 9l6 6 6-6" />
+            </svg>
+          </div>
+        </div>
+      </div>
+
+      {filtersActive && (
+        <div className="mb-4 flex flex-wrap items-center gap-2">
+          <span className="text-sm text-secondary">Filtering by</span>
+          {query.trim().length > 0 && (
+            <span className="count-badge">“{query.trim()}”</span>
+          )}
+          {statusFilter !== "all" && (
+            <span className="count-badge">{statusLabels[statusFilter]}</span>
+          )}
+          <button type="button" className="button-secondary min-h-9 px-3 text-xs" onClick={onClearFilters}>
+            Clear filters
+          </button>
+        </div>
+      )}
 
       {error ? (
         <div className="feedback-message feedback-error" role="alert">
@@ -82,20 +182,49 @@ export function PipelineTable({ leads, loading, error, onRetry, onAddLead, onSta
           <span className="sr-only">Loading leads...</span>
         </div>
       ) : leads.length === 0 ? (
-        <div className="empty-state">
-          <span aria-hidden="true" className="empty-state-icon">
-            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M3 7h18M3 12h18M3 17h18" />
-            </svg>
-          </span>
-          <h3 className="mt-4 font-semibold">No leads yet</h3>
-          <p className="mx-auto mt-1 max-w-sm text-sm text-secondary">Add your first prospect to start tracking the pipeline.</p>
-          <div className="empty-state-actions mt-5">
-            <button type="button" className="button-primary min-h-11 px-4 text-sm" onClick={onAddLead}>
-              Add a lead
-            </button>
+        filtersActive ? (
+          <div className="empty-state">
+            <span aria-hidden="true" className="empty-state-icon">
+              <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="11" cy="11" r="7" />
+                <path d="m20 20-3.5-3.5" />
+              </svg>
+            </span>
+            <h3 className="mt-4 font-semibold">No matching leads</h3>
+            <p className="mx-auto mt-1 max-w-sm text-sm text-secondary">
+              {totalLeads === 0
+                ? "Add your first prospect to start tracking the pipeline."
+                : "No leads match these filters. Try a different search term or stage."}
+            </p>
+            <div className="empty-state-actions mt-5">
+              {filtersActive && (
+                <button type="button" className="button-secondary min-h-11 px-4 text-sm" onClick={onClearFilters}>
+                  Clear filters
+                </button>
+              )}
+              {totalLeads === 0 && (
+                <button type="button" className="button-primary min-h-11 px-4 text-sm" onClick={onAddLead}>
+                  Add a lead
+                </button>
+              )}
+            </div>
           </div>
-        </div>
+        ) : (
+          <div className="empty-state">
+            <span aria-hidden="true" className="empty-state-icon">
+              <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M3 7h18M3 12h18M3 17h18" />
+              </svg>
+            </span>
+            <h3 className="mt-4 font-semibold">No leads yet</h3>
+            <p className="mx-auto mt-1 max-w-sm text-sm text-secondary">Add your first prospect to start tracking the pipeline.</p>
+            <div className="empty-state-actions mt-5">
+              <button type="button" className="button-primary min-h-11 px-4 text-sm" onClick={onAddLead}>
+                Add a lead
+              </button>
+            </div>
+          </div>
+        )
       ) : (
         <>
           <div className="table-shell hidden md:block">

@@ -2,7 +2,7 @@
 
 import type { LeadStatus } from "@/lib/types";
 
-const statusOptions: LeadStatus[] = ["new", "contacted", "qualified", "proposal", "won", "lost"];
+export const statusOptions: LeadStatus[] = ["new", "contacted", "qualified", "proposal", "won", "lost"];
 
 export const statusLabels: Record<LeadStatus, string> = {
   new: "New",

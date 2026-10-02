@@ -3,6 +3,7 @@
 import { type FormEvent, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 
 import type { DashboardSummary, Lead, LeadStatus, Task } from "@/lib/types";
+import { daysSince } from "@/lib/lead-insight";
 import { authorizedFetch } from "@/lib/supabase-browser";
 import { CurrencyAmount } from "./_components/currency-amount";
 import { AccountMenu } from "./_components/account-menu";
@@ -27,6 +28,9 @@ const emptySummary: DashboardSummary = {
 const themeEvent = "bizpilot-theme-change";
 let volatileTheme: ThemeMode | null = null;
 
+// Portfolio-level queue. Individual recommendations come from /api/ai/insight,
+// which reads that lead's real notes, tasks, and contact history. This only
+// picks which leads deserve attention first.
 function buildAiSuggestions(leads: Lead[]) {
   if (!leads.length) {
     return [
@@ -37,25 +41,68 @@ function buildAiSuggestions(leads: Lead[]) {
     ];
   }
 
-  const rankedLeads = [...leads].sort((left, right) => right.value - left.value);
-  const topLead = rankedLeads[0];
-  const hotLeads = leads.filter((lead) => ["new", "contacted", "qualified"].includes(lead.status));
-  const leadToPrioritize = hotLeads.length ? hotLeads.sort((left, right) => right.value - left.value)[0] : rankedLeads[0];
+  const now = Date.now();
+  const open = leads.filter((lead) => lead.status !== "won" && lead.status !== "lost");
+  const scored = open.map((lead) => {
+    const idleDays = daysSince(lead.lastContactAt, new Date(now)) ?? 0;
+    const neverContacted = !lead.lastContactAt;
+    const staleness = neverContacted ? 21 : Math.min(idleDays, 21);
+    const stageWeight = { proposal: 3, qualified: 2, contacted: 1, new: 1, won: 0, lost: 0 }[lead.status] ?? 0;
+    const valueWeight = Number(lead.value ?? 0) > 0 ? 2 : 0;
+    return { lead, score: staleness + stageWeight + valueWeight, idleDays, neverContacted };
+  });
 
-  return [
-    {
-      title: `Follow up with ${leadToPrioritize.name}`,
-      detail: `${leadToPrioritize.company} is a ${leadToPrioritize.status} opportunity with a ${leadToPrioritize.value ? "high-value" : "new"} pipeline signal. Send a short check-in today to keep momentum moving.`,
-    },
-    {
-      title: `Prioritize ${topLead.name}`,
-      detail: `${topLead.company} has the largest opportunity value right now. Focus the next touchpoint on value, urgency, and next-step clarity.`,
-    },
-    {
-      title: `Refresh outreach sequence`,
-      detail: `You have ${leads.filter((lead) => lead.status === "new").length} fresh leads and ${leads.filter((lead) => lead.status === "qualified").length} qualified opportunities. Recycle your strongest message template to convert early momentum.`,
-    },
-  ];
+  const priority = scored.sort((left, right) => right.score - left.score)[0];
+  const suggestions: Array<{ title: string; detail: string }> = [];
+
+  if (priority) {
+    const { lead, idleDays, neverContacted } = priority;
+    const stageWord = lead.status === "proposal" ? "awaiting a decision" : `in the ${lead.status} stage`;
+    const silence = neverContacted ? "no contact has been logged yet" : `last contacted ${idleDays} ${idleDays === 1 ? "day" : "days"} ago`;
+    suggestions.push({
+      title: `Work ${lead.name} next`,
+      detail: `${lead.company} is ${stageWord} and ${silence}. This is the most time-sensitive open opportunity, so start here.`,
+    });
+  }
+
+  const slipping = open.filter((lead) => {
+    const idleDays = daysSince(lead.lastContactAt, new Date(now));
+    return lead.id !== priority?.lead.id && idleDays !== null && idleDays >= 7;
+  });
+  if (slipping.length) {
+    const names = slipping.slice(0, 3).map((lead) => lead.name).join(", ");
+    const extra = slipping.length > 3 ? ` and ${slipping.length - 3} more` : "";
+    suggestions.push({
+      title: `${slipping.length} lead${slipping.length === 1 ? " has" : "s have"} gone quiet`,
+      detail: `${names}${extra} ${slipping.length === 1 ? "has" : "have"} had no logged contact in a week or more. A short re-engagement note is usually cheaper than winning the lead back later.`,
+    });
+  }
+
+  const awaitingDecision = open.filter((lead) => lead.status === "proposal");
+  if (awaitingDecision.length) {
+    const names = awaitingDecision.slice(0, 3).map((lead) => lead.name).join(", ");
+    suggestions.push({
+      title: `Close out ${awaitingDecision.length} proposal${awaitingDecision.length === 1 ? "" : "s"}`,
+      detail: `${names} ${awaitingDecision.length === 1 ? "is" : "are"} past the proposal stage with no decision logged. Ask for a decision date rather than another open-ended follow-up.`,
+    });
+  }
+
+  const hotLeads = open.filter((lead) => ["new", "contacted", "qualified"].includes(lead.status));
+  if (hotLeads.length >= 3) {
+    suggestions.push({
+      title: "Keep early momentum moving",
+      detail: `${open.filter((lead) => lead.status === "new").length} new and ${open.filter((lead) => lead.status === "qualified").length} qualified opportunities are live. Open each lead record to read its generated next best action before writing anything new.`,
+    });
+  }
+
+  if (suggestions.length < 3 && open.length > suggestions.length) {
+    suggestions.push({
+      title: `Review ${open.length - suggestions.length} other open leads`,
+      detail: `${open.length} opportunities are still open in total. Each lead record carries its own summary and recommended next step so you can triage them in order.`,
+    });
+  }
+
+  return suggestions.slice(0, 3);
 }
 
 function getThemeSnapshot(): ThemeMode {
@@ -96,10 +143,14 @@ function saveTheme(theme: ThemeMode) {
   window.dispatchEvent(new Event(themeEvent));
 }
 
-async function fetchDashboardData() {
+async function fetchDashboardData(filters: { query?: string; status?: LeadStatus | "all" } = {}) {
+  const leadsSearch = new URLSearchParams();
+  if (filters.query?.trim()) leadsSearch.set("q", filters.query.trim());
+  if (filters.status && filters.status !== "all") leadsSearch.set("status", filters.status);
+
   const responses = await Promise.all([
     authorizedFetch("/api/dashboard"),
-    authorizedFetch("/api/leads"),
+    authorizedFetch(`/api/leads${leadsSearch.size ? `?${leadsSearch}` : ""}`),
     authorizedFetch("/api/tasks"),
   ]);
   if (responses.some((response) => !response.ok)) {
@@ -127,6 +178,8 @@ export default function DashboardClient() {
   const [pendingLeadIds, setPendingLeadIds] = useState<string[]>([]);
   const [pendingTaskIds, setPendingTaskIds] = useState<string[]>([]);
   const [statusError, setStatusError] = useState("");
+  const [leadQuery, setLeadQuery] = useState("");
+  const [statusFilter, setStatusFilter] = useState<LeadStatus | "all">("all");
   const [selectedLeadId, setSelectedLeadId] = useState("");
   const [aiDraft, setAiDraft] = useState("");
   const [taskForm, setTaskForm] = useState({ leadId: "", title: "", dueDate: "" });
@@ -145,7 +198,7 @@ export default function DashboardClient() {
     setLoadError("");
 
     try {
-      const data = await fetchDashboardData();
+      const data = await fetchDashboardData({ query: leadQuery, status: statusFilter });
       setSummary(data.dashboard);
       setLeads(data.leads);
       setTasks(data.tasks);
@@ -154,7 +207,7 @@ export default function DashboardClient() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [leadQuery, statusFilter]);
 
   const refreshSummary = useCallback(async () => {
     try {
@@ -198,6 +251,35 @@ export default function DashboardClient() {
     window.addEventListener("bizpilot-auth-change", refreshOnAuthChange);
     return () => window.removeEventListener("bizpilot-auth-change", refreshOnAuthChange);
   }, [refreshData]);
+
+  const searchFiltersActive = leadQuery.trim().length > 0 || statusFilter !== "all";
+
+  const refetchFilteredLeads = useCallback(async () => {
+    try {
+      const response = await fetchDashboardData({ query: leadQuery, status: statusFilter });
+      setSummary(response.dashboard);
+      setLeads(response.leads);
+      setTasks(response.tasks);
+      setLoadError("");
+    } catch (requestError) {
+      setLoadError(requestError instanceof Error ? requestError.message : "The dashboard could not be loaded.");
+    }
+  }, [leadQuery, statusFilter]);
+
+  useEffect(() => {
+    if (!searchFiltersActive) return;
+
+    const timer = setTimeout(() => {
+      void refetchFilteredLeads();
+    }, 300);
+
+    return () => clearTimeout(timer);
+  }, [searchFiltersActive, refetchFilteredLeads]);
+
+  const handleClearFilters = useCallback(() => {
+    setLeadQuery("");
+    setStatusFilter("all");
+  }, []);
 
   const countMetrics = [
     { label: "Total leads", value: summary.totalLeads },
@@ -429,6 +511,12 @@ export default function DashboardClient() {
               onAddLead={focusLeadForm}
               onStatusChange={(leadId, next) => void updateLeadStatus(leadId, next)}
               pendingLeadIds={pendingLeadIds}
+              totalLeads={summary.totalLeads}
+              query={leadQuery}
+              onQueryChange={setLeadQuery}
+              statusFilter={statusFilter}
+              onStatusFilterChange={setStatusFilter}
+              onClearFilters={handleClearFilters}
             />
             {taskError && (
               <p className="feedback-message feedback-error mt-4" role="alert">

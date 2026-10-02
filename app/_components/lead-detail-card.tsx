@@ -1,11 +1,19 @@
 "use client";
 
 import Image from "next/image";
-import { useEffect, useState, type ChangeEvent, type FormEvent } from "react";
+import { useCallback, useEffect, useState, type ChangeEvent, type FormEvent } from "react";
 import Link from "next/link";
 
 import type { Lead, LeadNote, LeadStatus } from "@/lib/types";
+import type { LeadInsight } from "@/lib/lead-insight-types";
 import { authorizedFetch } from "@/lib/supabase-browser";
+
+const urgencyLabels: Record<LeadInsight["action"]["urgency"], string> = {
+  overdue: "Overdue",
+  today: "Today",
+  soon: "Soon",
+  on_track: "On track",
+};
 
 const allowedStatuses: LeadStatus[] = ["new", "contacted", "qualified", "proposal", "won", "lost"];
 const currencyFormatter = new Intl.NumberFormat("en-NG", {
@@ -39,6 +47,69 @@ export function LeadDetailCard({ initialLead }: LeadDetailCardProps) {
   const [photoSaving, setPhotoSaving] = useState(false);
   const [photoError, setPhotoError] = useState("");
   const [photoStatus, setPhotoStatus] = useState("");
+  const [insight, setInsight] = useState<LeadInsight | null>(null);
+  const [insightLoading, setInsightLoading] = useState(true);
+  const [insightError, setInsightError] = useState("");
+
+  // Kept outside the effect so the same fetch backs both the automatic load
+  // after a note is added and the manual refresh button.
+  const requestInsight = useCallback(async (leadId: string) => {
+    const response = await authorizedFetch("/api/ai/insight", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ leadId }),
+    });
+    const payload = await response.json();
+
+    if (!response.ok) {
+      throw new Error(payload.error ?? "The next best action could not be generated.");
+    }
+    return payload as LeadInsight;
+  }, []);
+
+  async function refreshInsight() {
+    setInsightLoading(true);
+    setInsightError("");
+
+    try {
+      setInsight(await requestInsight(lead.id));
+    } catch (requestError) {
+      setInsightError(
+        requestError instanceof Error ? requestError.message : "The next best action could not be generated.",
+      );
+    } finally {
+      setInsightLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    let active = true;
+
+    async function loadInsight() {
+      try {
+        const result = await requestInsight(initialLead.id);
+        if (active) {
+          setInsight(result);
+          setInsightError("");
+        }
+      } catch (requestError) {
+        if (active) {
+          setInsightError(
+            requestError instanceof Error
+              ? requestError.message
+              : "The next best action could not be generated.",
+          );
+        }
+      } finally {
+        if (active) setInsightLoading(false);
+      }
+    }
+
+    void loadInsight();
+    return () => {
+      active = false;
+    };
+  }, [initialLead.id, notes.length, requestInsight]);
 
   useEffect(() => {
     let active = true;
@@ -384,6 +455,54 @@ export function LeadDetailCard({ initialLead }: LeadDetailCardProps) {
               </div>
               <span className="count-badge">{notes.length} {notes.length === 1 ? "note" : "notes"}</span>
             </div>
+
+            <section className="insight-panel" aria-labelledby="lead-insight-heading">
+              <div className="insight-panel-heading">
+                <h3 id="lead-insight-heading">Next best action</h3>
+                {insight && (
+                  <span className={`count-badge insight-urgency insight-urgency-${insight.action.urgency}`}>
+                    {urgencyLabels[insight.action.urgency]}
+                  </span>
+                )}
+              </div>
+
+              {insightLoading && !insight ? (
+                <p className="mt-3 text-sm text-secondary" role="status">Analysing notes and follow-ups...</p>
+              ) : insightError && !insight ? (
+                <p className="feedback-message feedback-error mt-3" role="alert">{insightError}</p>
+              ) : insight ? (
+                <div className="mt-3 space-y-4">
+                  <div>
+                    <p className="form-label">Recommended action</p>
+                    <p className="text-sm font-medium leading-relaxed">{insight.action.action}</p>
+                    <p className="mt-1 text-sm leading-relaxed text-secondary">{insight.action.reason}</p>
+                  </div>
+
+                  <div>
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <p className="form-label mb-0">History summary</p>
+                      <button
+                        type="button"
+                        className="button-secondary min-h-9 px-3 text-xs"
+                        onClick={() => void refreshInsight()}
+                        disabled={insightLoading}
+                      >
+                        {insightLoading ? "Refreshing..." : "Refresh"}
+                      </button>
+                    </div>
+                    <p className="mt-1.5 text-sm leading-relaxed text-secondary">{insight.summary}</p>
+                  </div>
+
+                  <p className="text-xs text-secondary">
+                    Based on {insight.noteCount} {insight.noteCount === 1 ? "note" : "notes"}
+                    {insight.openTaskCount > 0
+                      ? ` and ${insight.openTaskCount} open ${insight.openTaskCount === 1 ? "task" : "tasks"}`
+                      : ""}
+                    {insight.action.source === "model" ? " · refined by AI" : ""}
+                  </p>
+                </div>
+              ) : null}
+            </section>
 
             <form onSubmit={handleNoteSubmit} className="lead-note-form">
               <div>
