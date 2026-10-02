@@ -591,6 +591,22 @@ select:focus-visible {
   margin-top: 1.25rem;
 }
 
+.inactive-alert-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--surface-subtle);
+  padding: 0.75rem 0.875rem;
+}
+
+.inactive-alert-critical {
+  border-color: var(--text-primary);
+  color: var(--text-primary);
+}
+
 .insight-panel {
   background: var(--surface-subtle);
   border: 1px solid var(--border-subtle);

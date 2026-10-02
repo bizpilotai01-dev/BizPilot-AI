@@ -1,4 +1,7 @@
-import type { DashboardSummary, Lead, LeadStatus, Task, TaskStatus } from "@/lib/types";
+// Relative import on purpose. This file is only reachable from the Node test
+// runner, which does not resolve the "@/" alias that the app build relies on.
+import { DEFAULT_INACTIVITY_THRESHOLD_DAYS } from "./inactive-leads.ts";
+import type { DashboardSummary, Lead, LeadStatus, Task, TaskStatus } from "./types.ts";
 
 export interface Business {
   id: string;
@@ -123,6 +126,9 @@ export function getDashboardSummary(): DashboardSummary {
     pipelineValue,
     followUpsDue,
     conversionRate,
+    inactiveLeads: 0,
+    inactiveThresholdDays: DEFAULT_INACTIVITY_THRESHOLD_DAYS,
+    inactive: [],
     recentActivities: [
       {
         id: "ACT-1",

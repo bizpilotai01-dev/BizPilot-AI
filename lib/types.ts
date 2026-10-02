@@ -40,6 +40,18 @@ export interface Profile {
   createdAt: string;
 }
 
+export interface InactiveLeadAlert {
+  id: string;
+  name: string;
+  company: string;
+  status: LeadStatus;
+  idleDays: number;
+  neverContacted: boolean;
+  value: number;
+  severity: "critical" | "warning";
+  reason: string;
+}
+
 export interface DashboardSummary {
   totalLeads: number;
   newLeads: number;
@@ -48,6 +60,9 @@ export interface DashboardSummary {
   pipelineValue: number;
   followUpsDue: number;
   conversionRate: number;
+  inactiveLeads: number;
+  inactiveThresholdDays: number;
+  inactive: InactiveLeadAlert[];
   recentActivities: Array<{
     id: string;
     user: string;

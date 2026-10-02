@@ -3,8 +3,28 @@ create table if not exists businesses (
   name text not null,
   industry text,
   owner_id text,
+  inactivity_threshold_days integer not null default 7,
   created_at timestamptz default now()
 );
+
+alter table public.businesses add column if not exists inactivity_threshold_days integer not null default 7;
+
+do $$
+begin
+  if exists (
+    select 1 from public.businesses
+    where inactivity_threshold_days is null
+       or inactivity_threshold_days < 1
+       or inactivity_threshold_days > 90
+  ) then
+    update public.businesses
+    set inactivity_threshold_days = 7
+    where inactivity_threshold_days is null
+       or inactivity_threshold_days < 1
+       or inactivity_threshold_days > 90;
+  end if;
+end;
+$$;
 
 create table if not exists profiles (
   id text primary key,

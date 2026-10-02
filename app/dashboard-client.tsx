@@ -3,12 +3,14 @@
 import { type FormEvent, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 
 import type { DashboardSummary, Lead, LeadStatus, Task } from "@/lib/types";
+import { DEFAULT_INACTIVITY_THRESHOLD_DAYS } from "@/lib/inactive-leads";
 import { daysSince } from "@/lib/lead-insight";
 import { authorizedFetch } from "@/lib/supabase-browser";
 import { CurrencyAmount } from "./_components/currency-amount";
 import { AccountMenu } from "./_components/account-menu";
 import { BusinessOnboardingForm } from "./_components/business-onboarding-form";
 import { DashboardHeader, type ThemeMode } from "./_components/dashboard-header";
+import { InactiveLeadAlerts } from "./_components/inactive-lead-alerts";
 import { LeadCreationForm } from "./_components/lead-creation-form";
 import { PipelineTable } from "./_components/pipeline-table";
 import { statusLabels } from "./_components/status-select";
@@ -22,6 +24,9 @@ const emptySummary: DashboardSummary = {
   pipelineValue: 0,
   followUpsDue: 0,
   conversionRate: 0,
+  inactiveLeads: 0,
+  inactiveThresholdDays: DEFAULT_INACTIVITY_THRESHOLD_DAYS,
+  inactive: [],
   recentActivities: [],
 };
 
@@ -180,6 +185,8 @@ export default function DashboardClient() {
   const [statusError, setStatusError] = useState("");
   const [leadQuery, setLeadQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<LeadStatus | "all">("all");
+  const [thresholdSaving, setThresholdSaving] = useState(false);
+  const [thresholdError, setThresholdError] = useState("");
   const [selectedLeadId, setSelectedLeadId] = useState("");
   const [aiDraft, setAiDraft] = useState("");
   const [taskForm, setTaskForm] = useState({ leadId: "", title: "", dueDate: "" });
@@ -365,6 +372,34 @@ export default function DashboardClient() {
     leadNameRef.current?.focus();
   }
 
+  async function updateInactivityThreshold(days: number) {
+    setThresholdSaving(true);
+    setThresholdError("");
+
+    try {
+      const response = await authorizedFetch("/api/businesses", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ inactivityThresholdDays: days }),
+      });
+      const payload = await response.json();
+
+      if (!response.ok) {
+        throw new Error(payload.error ?? "The alert window could not be saved.");
+      }
+
+      // The dashboard derives alerts from this window, so refetching is the
+      // only way to see the new list rather than guessing at it client-side.
+      await refreshData();
+    } catch (requestError) {
+      setThresholdError(
+        requestError instanceof Error ? requestError.message : "The alert window could not be saved.",
+      );
+    } finally {
+      setThresholdSaving(false);
+    }
+  }
+
   async function generateLeadDraft() {
     if (!selectedLead) {
       setAiDraft("Add a lead first so BizPilot can suggest a follow-up message.");
@@ -523,14 +558,24 @@ export default function DashboardClient() {
                 <span>{taskError}</span>
               </p>
             )}
-            <SupportingActivity
-              tasks={tasks}
-              activities={summary.recentActivities}
+            <InactiveLeadAlerts
+              alerts={summary.inactive}
+              thresholdDays={summary.inactiveThresholdDays}
               loading={loading}
-              error={loadError}
-              pendingTaskIds={pendingTaskIds}
-              onTaskStatusChange={(taskId, nextStatus) => void updateTaskStatus(taskId, nextStatus)}
+              onThresholdChange={(days) => void updateInactivityThreshold(days)}
+              thresholdSaving={thresholdSaving}
+              thresholdError={thresholdError}
             />
+            <div className="mt-4">
+              <SupportingActivity
+                tasks={tasks}
+                activities={summary.recentActivities}
+                loading={loading}
+                error={loadError}
+                pendingTaskIds={pendingTaskIds}
+                onTaskStatusChange={(taskId, nextStatus) => void updateTaskStatus(taskId, nextStatus)}
+              />
+            </div>
           </div>
 
           <aside className="min-w-0 lg:sticky lg:top-6">

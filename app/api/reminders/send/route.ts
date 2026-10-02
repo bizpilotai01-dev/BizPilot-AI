@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 
+import { findInactiveLeads, parseThresholdDays, type InactiveLead } from "@/lib/inactive-leads";
 import { supabaseAdmin } from "@/lib/supabase";
+import type { LeadStatus } from "@/lib/types";
 
 type ReminderTask = {
   id: string;
@@ -8,6 +10,7 @@ type ReminderTask = {
   due_date: string;
   leads: { id: string; name: string; company: string; business_id: string } | Array<{ id: string; name: string; company: string; business_id: string }>;
 };
+
 
 function getTodayInLagos() {
   const parts = new Intl.DateTimeFormat("en-CA", {
@@ -42,7 +45,30 @@ function formatTaskList(tasks: ReminderTask[], today: string) {
   }).join("\n");
 }
 
-async function sendEmail(to: string, tasks: ReminderTask[], today: string) {
+// WhatsApp template bodies are length-capped, so the list is ordered by
+// severity and the quiet-lead digest is appended only if there is room.
+function formatInactiveList(alerts: InactiveLead[], limit = 5) {
+  return alerts.slice(0, limit).map((alert) => `• ${alert.reason}`).join("\n");
+}
+
+function buildDigest(tasks: ReminderTask[], alerts: InactiveLead[], today: string) {
+  const blocks: string[] = [];
+
+  if (tasks.length) {
+    blocks.push(`Here are your open follow-ups due tomorrow or overdue:\n\n${formatTaskList(tasks, today)}`);
+  }
+  if (alerts.length) {
+    const subject = alerts.length === 1 ? "lead has" : "leads have";
+    blocks.push(
+      `${alerts.length} open ${subject} gone quiet inside your alert window:\n\n${formatInactiveList(alerts)}`,
+    );
+  }
+  blocks.push("Review your leads and tasks in BizPilot.");
+
+  return blocks.join("\n\n");
+}
+
+async function sendEmail(to: string, digest: string, hasTasks: boolean) {
   const response = await fetch("https://api.resend.com/emails", {
     method: "POST",
     headers: {
@@ -52,14 +78,14 @@ async function sendEmail(to: string, tasks: ReminderTask[], today: string) {
     body: JSON.stringify({
       from: process.env.RESEND_FROM_EMAIL,
       to: [to],
-      subject: "BizPilot follow-up reminders",
-      text: `Here are your open follow-ups due tomorrow or overdue:\n\n${formatTaskList(tasks, today)}\n\nReview your tasks in BizPilot.`,
+      subject: hasTasks ? "BizPilot follow-up reminders" : "BizPilot inactive lead alerts",
+      text: digest,
     }),
   });
   if (!response.ok) throw new Error(`Email provider returned HTTP ${response.status}.`);
 }
 
-async function sendWhatsApp(to: string, tasks: ReminderTask[], today: string) {
+async function sendWhatsApp(to: string, digest: string) {
   const template = process.env.WHATSAPP_REMINDER_TEMPLATE;
   if (!template) throw new Error("Set an approved WhatsApp reminder template before enabling WhatsApp reminders.");
 
@@ -81,7 +107,7 @@ async function sendWhatsApp(to: string, tasks: ReminderTask[], today: string) {
           language: { code: process.env.WHATSAPP_TEMPLATE_LANGUAGE || "en" },
           components: [{
             type: "body",
-            parameters: [{ type: "text", text: formatTaskList(tasks, today).slice(0, 900) }],
+            parameters: [{ type: "text", text: digest.slice(0, 900) }],
           }],
         },
       }),
@@ -101,7 +127,12 @@ export async function GET(request: Request) {
 
   const today = getTodayInLagos();
   const tomorrow = getTomorrow(today);
-  const [{ data: tasks, error: tasksError }, { data: profiles, error: profilesError }] = await Promise.all([
+  const [
+    { data: tasks, error: tasksError },
+    { data: profiles, error: profilesError },
+    { data: businesses, error: businessesError },
+    { data: openLeads, error: leadsError },
+  ] = await Promise.all([
     supabaseAdmin
       .from("tasks")
       .select("id, title, due_date, leads!inner(id, name, company, business_id)")
@@ -111,19 +142,57 @@ export async function GET(request: Request) {
       .from("profiles")
       .select("id, business_id, email, phone, reminder_email_enabled, reminder_whatsapp_enabled")
       .not("business_id", "is", null),
+    supabaseAdmin.from("businesses").select("id, inactivity_threshold_days"),
+    supabaseAdmin
+      .from("leads")
+      .select("id, business_id, name, company, status, value, last_contacted_at, created_at"),
   ]);
-  if (tasksError || profilesError) {
+  if (tasksError || profilesError || businessesError || leadsError) {
     return NextResponse.json({ error: "Due tasks or reminder recipients could not be loaded." }, { status: 500 });
   }
 
   const dueTasks = (tasks ?? []) as ReminderTask[];
+
+  // Alert windows are per-workspace, so each workspace is filtered separately.
+  const alertsByBusiness = new Map<string, InactiveLead[]>();
+  for (const row of openLeads ?? []) {
+    if (!row.business_id) continue;
+    const thresholdDays = parseThresholdDays(
+      businesses?.find((business) => business.id === row.business_id)?.inactivity_threshold_days,
+    );
+    const found = findInactiveLeads(
+      [
+        {
+          id: row.id,
+          name: row.name,
+          company: row.company ?? "",
+          status: (row.status ?? "new") as LeadStatus,
+          value: row.value,
+          lastContactAt: row.last_contacted_at,
+          createdAt: row.created_at,
+        },
+      ],
+      { thresholdDays },
+    );
+    if (!found.length) continue;
+    alertsByBusiness.set(row.business_id, [...(alertsByBusiness.get(row.business_id) ?? []), ...found]);
+  }
+  for (const [businessId, alerts] of alertsByBusiness) {
+    alerts.sort((left, right) => right.idleDays - left.idleDays || right.value - left.value);
+    alertsByBusiness.set(businessId, alerts);
+  }
+
   let sent = 0;
   let failed = 0;
   let skipped = 0;
 
   for (const profile of profiles ?? []) {
     const profileTasks = dueTasks.filter((task) => getLead(task)?.business_id === profile.business_id);
-    if (!profileTasks.length) continue;
+    const profileAlerts = profile.business_id ? alertsByBusiness.get(profile.business_id) ?? [] : [];
+    // A recipient with neither due tasks nor stale leads has nothing to be told.
+    if (!profileTasks.length && !profileAlerts.length) continue;
+
+    const digest = buildDigest(profileTasks, profileAlerts, today);
 
     for (const channel of ["email", "whatsapp"] as const) {
       const enabled = channel === "email" ? profile.reminder_email_enabled : profile.reminder_whatsapp_enabled;
@@ -175,12 +244,12 @@ export async function GET(request: Request) {
           if (!process.env.RESEND_API_KEY || !process.env.RESEND_FROM_EMAIL) {
             throw new Error("Resend email settings are not configured.");
           }
-          await sendEmail(recipient, profileTasks, today);
+          await sendEmail(recipient, digest, profileTasks.length > 0);
         } else {
           if (!process.env.WHATSAPP_ACCESS_TOKEN || !process.env.WHATSAPP_PHONE_NUMBER_ID) {
             throw new Error("Meta WhatsApp settings are not configured.");
           }
-          await sendWhatsApp(recipient, profileTasks, today);
+          await sendWhatsApp(recipient, digest);
         }
         const { error: updateError } = await supabaseAdmin
           .from("reminder_deliveries")
@@ -201,5 +270,12 @@ export async function GET(request: Request) {
     }
   }
 
-  return NextResponse.json({ date: today, dueTaskCount: dueTasks.length, sent, failed, skipped });
+  return NextResponse.json({
+    date: today,
+    dueTaskCount: dueTasks.length,
+    inactiveLeadCount: [...alertsByBusiness.values()].reduce((sum, alerts) => sum + alerts.length, 0),
+    sent,
+    failed,
+    skipped,
+  });
 }
