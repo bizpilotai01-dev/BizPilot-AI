@@ -3,13 +3,16 @@ import Link from "next/link";
 
 export type { ThemeMode } from "./theme-types";
 
+import type { ReactNode } from "react";
+
 type DashboardHeaderProps = {
   theme: ThemeMode;
   onThemeChange: (theme: ThemeMode) => void;
   onAddLead: () => void;
+  accountMenu: ReactNode;
 };
 
-export function DashboardHeader({ theme, onThemeChange, onAddLead }: DashboardHeaderProps) {
+export function DashboardHeader({ theme, onThemeChange, onAddLead, accountMenu }: DashboardHeaderProps) {
   return (
     <header className="border-b border-subtle">
       <div className="mx-auto flex max-w-[1280px] flex-col gap-4 px-4 py-4 sm:px-6 lg:min-h-[88px] lg:flex-row lg:items-center lg:justify-between lg:px-8">
@@ -28,6 +31,7 @@ export function DashboardHeader({ theme, onThemeChange, onAddLead }: DashboardHe
 
         <div className="flex flex-wrap items-center gap-3 sm:justify-end">
           <Link href="/reports" className="button-secondary min-h-11 px-4 text-sm">Reports</Link>
+          {accountMenu}
           <button
             type="button"
             className="theme-toggle"

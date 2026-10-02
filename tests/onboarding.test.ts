@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { createBusiness, createProfile, profiles } from "../lib/store";
+import { createBusiness, createProfile, profiles } from "../lib/store.ts";
 
 test("createProfile creates an owner profile for a new business", () => {
   const before = profiles.length;

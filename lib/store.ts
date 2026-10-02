@@ -17,14 +17,6 @@ export interface Profile {
   createdAt: string;
 }
 
-export interface Note {
-  id: string;
-  leadId: string;
-  content: string;
-  createdBy: string;
-  createdAt: string;
-}
-
 export const businesses: Business[] = [
   {
     id: "biz_001",
@@ -91,23 +83,6 @@ export const leads: Lead[] = [
     nextAction: "Confirm business needs and qualify fit",
     lastContactAt: "2026-09-30",
     tags: ["logistics", "inbound"],
-  },
-];
-
-export const notes: Note[] = [
-  {
-    id: "note_001",
-    leadId: "LD-1001",
-    content: "Lead expressed interest in a fast deployment and CRM support.",
-    createdBy: "user_001",
-    createdAt: "2026-10-01T10:00:00.000Z",
-  },
-  {
-    id: "note_002",
-    leadId: "LD-1002",
-    content: "Follow-up scheduled for tomorrow after onboarding questions are answered.",
-    createdBy: "user_002",
-    createdAt: "2026-09-29T09:00:00.000Z",
   },
 ];
 

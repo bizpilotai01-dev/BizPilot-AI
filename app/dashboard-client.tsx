@@ -5,15 +5,13 @@ import { type FormEvent, useCallback, useEffect, useMemo, useRef, useState, useS
 import type { DashboardSummary, Lead, LeadStatus, Task } from "@/lib/types";
 import { authorizedFetch } from "@/lib/supabase-browser";
 import { CurrencyAmount } from "./_components/currency-amount";
-import { AuthCard } from "./_components/auth-card";
+import { AccountMenu } from "./_components/account-menu";
 import { BusinessOnboardingForm } from "./_components/business-onboarding-form";
 import { DashboardHeader, type ThemeMode } from "./_components/dashboard-header";
 import { LeadCreationForm } from "./_components/lead-creation-form";
 import { PipelineTable } from "./_components/pipeline-table";
-import { ReminderPreferences } from "./_components/reminder-preferences";
 import { statusLabels } from "./_components/status-select";
 import { SupportingActivity } from "./_components/supporting-activity";
-import { TeamProfiles } from "./_components/team-profiles";
 
 const emptySummary: DashboardSummary = {
   totalLeads: 0,
@@ -380,14 +378,9 @@ export default function DashboardClient() {
   return (
     <div className="app-shell min-h-screen transition-colors duration-200 motion-reduce:transition-none" data-theme={theme}>
       <a className="skip-link" href="#main-content">Skip to main content</a>
-      <DashboardHeader theme={theme} onThemeChange={saveTheme} onAddLead={focusLeadForm} />
+      <DashboardHeader theme={theme} onThemeChange={saveTheme} onAddLead={focusLeadForm} accountMenu={<AccountMenu />} />
 
       <main id="main-content" className="mx-auto max-w-[1280px] px-4 pb-12 pt-6 sm:px-6 lg:px-8 lg:pt-8">
-        <div className="mb-6">
-          <AuthCard />
-          <TeamProfiles />
-          <ReminderPreferences />
-        </div>
         <section aria-label="Pipeline summary" className="mb-8">
           <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
             <h2 className="text-xs font-semibold uppercase tracking-[0.08em] text-secondary">Business snapshot</h2>
