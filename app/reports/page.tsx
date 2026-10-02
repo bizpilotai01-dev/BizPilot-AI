@@ -10,6 +10,7 @@ type ReportData = {
   range: string;
   summary: {
     totalLeads: number;
+    newLeadsThisWeek: number;
     openPipelineValue: number;
     wonValue: number;
     wonCount: number;
@@ -50,6 +51,7 @@ export default function ReportsPage() {
   const metrics = report
     ? [
         { label: "Leads in period", value: report.summary.totalLeads },
+        { label: "New this week", value: report.summary.newLeadsThisWeek },
         { label: "Open pipeline", value: <CurrencyAmount amount={report.summary.openPipelineValue} /> },
         { label: "Won value", value: <CurrencyAmount amount={report.summary.wonValue} /> },
         { label: "Won deals", value: report.summary.wonCount },

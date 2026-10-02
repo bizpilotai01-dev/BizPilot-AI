@@ -37,6 +37,19 @@ export async function GET(request: Request) {
   }
 
   const rows = leads ?? [];
+  // Computed against the unfiltered workspace, so "this week" always means the
+  // current week regardless of which reporting range is selected.
+  const weekStart = new Date(Date.now() - 7 * 86_400_000).toISOString();
+  const { data: recentLeads, error: recentLeadsError } = await supabaseAdmin!
+    .from("leads")
+    .select("id")
+    .eq("business_id", auth.context.businessId)
+    .gte("created_at", weekStart);
+
+  if (recentLeadsError) {
+    return NextResponse.json({ error: "Sales reports could not be loaded." }, { status: 500 });
+  }
+  const newLeadsThisWeek = (recentLeads ?? []).length;
   const taskRows = (tasks ?? []).filter((task) => {
     if (!startDate) return true;
     const lead = Array.isArray(task.leads) ? task.leads[0] : task.leads;
@@ -59,6 +72,7 @@ export async function GET(request: Request) {
     range,
     summary: {
       totalLeads: rows.length,
+      newLeadsThisWeek,
       openPipelineValue: openLeads.reduce((sum, lead) => sum + Number(lead.value ?? 0), 0),
       wonValue: rows.filter((lead) => lead.status === "won").reduce((sum, lead) => sum + Number(lead.value ?? 0), 0),
       wonCount,
