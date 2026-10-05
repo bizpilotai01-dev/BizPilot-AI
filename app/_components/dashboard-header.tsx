@@ -10,9 +10,10 @@ type DashboardHeaderProps = {
   onThemeChange: (theme: ThemeMode) => void;
   onAddLead: () => void;
   accountMenu: ReactNode;
+  notifications?: ReactNode;
 };
 
-export function DashboardHeader({ theme, onThemeChange, onAddLead, accountMenu }: DashboardHeaderProps) {
+export function DashboardHeader({ theme, onThemeChange, onAddLead, accountMenu, notifications }: DashboardHeaderProps) {
   return (
     <header className="border-b border-subtle">
       <div className="mx-auto flex max-w-[1280px] flex-col gap-4 px-4 py-4 sm:px-6 lg:min-h-[88px] lg:flex-row lg:items-center lg:justify-between lg:px-8">
@@ -31,6 +32,7 @@ export function DashboardHeader({ theme, onThemeChange, onAddLead, accountMenu }
 
         <div className="flex flex-wrap items-center gap-3 sm:justify-end">
           <Link href="/reports" className="button-secondary min-h-11 px-4 text-sm">Reports</Link>
+          {notifications}
           {accountMenu}
           <button
             type="button"

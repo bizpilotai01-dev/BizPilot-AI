@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 import { recordActivity } from "@/lib/activity";
 import { requireWorkspace } from "@/lib/api-auth";
 import { supabaseAdmin } from "@/lib/supabase";
-import { buildLeadSearchOrFilter, isLeadStatus } from "@/lib/lead-search";
+import { buildLeadSearchOrFilter, isEmptyLeadSearchTerm, isLeadStatus } from "@/lib/lead-search";
 import type { LeadStatus } from "@/lib/types";
 
 const allowedStatuses: LeadStatus[] = ["new", "contacted", "qualified", "proposal", "won", "lost"];
@@ -15,6 +15,12 @@ export async function GET(request: Request) {
   const params = new URL(request.url).searchParams;
   const query = (params.get("q") ?? "").trim();
   const statusParam = (params.get("status") ?? "").trim();
+
+  // A term made only of wildcards has no searchable text left in it. Returning
+  // the unfiltered list here would look like the search worked.
+  if (isEmptyLeadSearchTerm(query)) {
+    return NextResponse.json({ items: [] });
+  }
 
   if (statusParam && !isLeadStatus(statusParam)) {
     return NextResponse.json(

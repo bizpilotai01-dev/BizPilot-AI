@@ -5,6 +5,7 @@ import { type FormEvent, useCallback, useEffect, useMemo, useRef, useState, useS
 import type { DashboardSummary, Lead, LeadStatus, Task } from "@/lib/types";
 import { DEFAULT_INACTIVITY_THRESHOLD_DAYS } from "@/lib/inactive-leads";
 import { daysSince } from "@/lib/lead-insight";
+import { buildNotifications, dismissNotification, getDismissedServerSnapshot, getDismissedSnapshot, restoreNotification, subscribeToDismissed } from "@/lib/notifications";
 import { authorizedFetch } from "@/lib/supabase-browser";
 import { CurrencyAmount } from "./_components/currency-amount";
 import { AccountMenu } from "./_components/account-menu";
@@ -12,6 +13,7 @@ import { BusinessOnboardingForm } from "./_components/business-onboarding-form";
 import { DashboardHeader, type ThemeMode } from "./_components/dashboard-header";
 import { InactiveLeadAlerts } from "./_components/inactive-lead-alerts";
 import { LeadCreationForm } from "./_components/lead-creation-form";
+import { NotificationMenu } from "./_components/notification-menu";
 import { PipelineTable } from "./_components/pipeline-table";
 import { statusLabels } from "./_components/status-select";
 import { SupportingActivity } from "./_components/supporting-activity";
@@ -199,6 +201,24 @@ export default function DashboardClient() {
   const taskLeadId = leads.some((lead) => lead.id === taskForm.leadId)
     ? taskForm.leadId
     : leads[0]?.id ?? "";
+
+  // Dismissed notifications live in an external store so the first client
+  // render already matches what was stored, with no cascading re-render.
+  const dismissedNotifications = useSyncExternalStore(
+    subscribeToDismissed,
+    getDismissedSnapshot,
+    getDismissedServerSnapshot,
+  );
+
+  const notifications = useMemo(
+    () => buildNotifications(tasks, summary.inactive),
+    [tasks, summary.inactive],
+  );
+
+  const handleDismissNotification = useCallback((id: string) => {
+    if (dismissedNotifications.has(id)) restoreNotification(id);
+    else dismissNotification(id);
+  }, [dismissedNotifications]);
 
   const refreshData = useCallback(async () => {
     setLoading(true);
@@ -495,7 +515,17 @@ export default function DashboardClient() {
   return (
     <div className="app-shell min-h-screen transition-colors duration-200 motion-reduce:transition-none" data-theme={theme}>
       <a className="skip-link" href="#main-content">Skip to main content</a>
-      <DashboardHeader theme={theme} onThemeChange={saveTheme} onAddLead={focusLeadForm} accountMenu={<AccountMenu />} />
+      <DashboardHeader theme={theme} onThemeChange={saveTheme} onAddLead={focusLeadForm}
+        accountMenu={<AccountMenu />}
+        notifications={
+          <NotificationMenu
+            notifications={notifications}
+            dismissed={dismissedNotifications}
+            onDismiss={handleDismissNotification}
+            onSelect={setSelectedLeadId}
+          />
+        }
+      />
 
       <main id="main-content" className="mx-auto max-w-[1280px] px-4 pb-12 pt-6 sm:px-6 lg:px-8 lg:pt-8">
         <section aria-label="Pipeline summary" className="mb-8">

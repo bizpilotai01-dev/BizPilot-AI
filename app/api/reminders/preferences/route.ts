@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { requireWorkspace } from "@/lib/api-auth";
+import { isValidReminderPhone, normalizeReminderPhone } from "@/lib/reminder-preferences";
 import { supabaseAdmin } from "@/lib/supabase";
 
 function channelConfiguration() {
@@ -51,8 +52,8 @@ export async function PATCH(request: Request) {
     if (typeof body.phone !== "string") {
       return NextResponse.json({ error: "Phone must be text." }, { status: 400 });
     }
-    const phone = body.phone.trim();
-    if (phone && !/^\+[1-9]\d{7,14}$/.test(phone)) {
+    const phone = normalizeReminderPhone(body.phone);
+    if (phone && !isValidReminderPhone(phone)) {
       return NextResponse.json({ error: "Enter a phone number in international format, e.g. +2348012345678." }, { status: 400 });
     }
     update.phone = phone || null;

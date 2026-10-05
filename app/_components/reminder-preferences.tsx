@@ -3,6 +3,7 @@
 import { useEffect, useState, type FormEvent } from "react";
 
 import { authorizedFetch } from "@/lib/supabase-browser";
+import { isValidReminderPhone } from "@/lib/reminder-preferences";
 
 type Preferences = {
   phone: string;
@@ -67,27 +68,32 @@ export function ReminderPreferences() {
     }
   }
 
+  // A channel can always be chosen. Delivery waits on provider credentials,
+  // but the choice itself must not be blocked, otherwise the setting cannot be
+  // set up before Resend or Meta are wired up.
+  const whatsappBlocked = preferences.whatsappEnabled && !isValidReminderPhone(preferences.phone);
+
   return (
     <section className="module-surface mt-4" aria-labelledby="reminder-preferences-heading">
       <div>
         <h2 id="reminder-preferences-heading" className="section-heading">Follow-up reminders</h2>
-        <p className="mt-1 text-sm text-secondary">In-app due-date alerts are always on. Choose optional daily email or WhatsApp reminders for tasks due tomorrow or overdue.</p>
+        <p className="mt-1 text-sm text-secondary">In-app due-date alerts are always on. Choose either reminder channel, or both.</p>
       </div>
       {loading ? (
         <p className="mt-4 text-sm text-secondary" role="status">Loading reminder settings...</p>
       ) : (
-        <form onSubmit={handleSubmit} className="mt-4 grid gap-3 sm:grid-cols-[minmax(0,1fr)_minmax(260px,1fr)]">
+        <form onSubmit={handleSubmit} className="mt-4 grid gap-3 sm:grid-cols-2">
           <label className="reminder-channel-option">
             <input
               type="checkbox"
               checked={preferences.emailEnabled}
-              disabled={!preferences.configured.email}
               onChange={(event) => setPreferences((current) => ({ ...current, emailEnabled: event.target.checked }))}
             />
             <span>
               <span className="block font-medium">Email reminders</span>
-              <span className="block text-xs text-secondary">
-                {preferences.configured.email ? "Send to your account email." : "Email delivery needs Resend configuration."}
+              <span className="block text-xs text-secondary">A daily digest of tasks due tomorrow, overdue tasks, and quiet leads.</span>
+              <span className={preferences.configured.email ? "reminder-channel-status" : "reminder-channel-status reminder-channel-status-pending"}>
+                {preferences.configured.email ? "Ready to send" : "Not configured yet: add Resend keys to send"}
               </span>
             </span>
           </label>
@@ -95,32 +101,41 @@ export function ReminderPreferences() {
             <input
               type="checkbox"
               checked={preferences.whatsappEnabled}
-              disabled={!preferences.configured.whatsapp}
               onChange={(event) => setPreferences((current) => ({ ...current, whatsappEnabled: event.target.checked }))}
             />
             <span>
               <span className="block font-medium">WhatsApp reminders</span>
-              <span className="block text-xs text-secondary">
-                {preferences.configured.whatsapp ? "Requires your international phone number." : "Needs Meta API credentials and an approved reminder template."}
+              <span className="block text-xs text-secondary">The same daily digest, sent to your number in international format.</span>
+              <span className={preferences.configured.whatsapp ? "reminder-channel-status" : "reminder-channel-status reminder-channel-status-pending"}>
+                {preferences.configured.whatsapp ? "Ready to send" : "Not configured yet: add Meta API keys and an approved template"}
               </span>
             </span>
           </label>
-          <div className="sm:col-span-2">
-            <label className="form-label" htmlFor="reminder-phone">WhatsApp number</label>
-            <input
-              id="reminder-phone"
-              className="form-control max-w-sm"
-              type="tel"
-              autoComplete="tel"
-              placeholder="+2348012345678"
-              value={preferences.phone}
-              onChange={(event) => setPreferences((current) => ({ ...current, phone: event.target.value }))}
-            />
-          </div>
+          {preferences.whatsappEnabled && (
+            <div className="sm:col-span-2">
+              <label className="form-label" htmlFor="reminder-phone">WhatsApp number</label>
+              <input
+                id="reminder-phone"
+                className="form-control max-w-sm"
+                type="tel"
+                autoComplete="tel"
+                placeholder="+2348012345678"
+                value={preferences.phone}
+                aria-describedby="reminder-phone-help"
+                onChange={(event) => setPreferences((current) => ({ ...current, phone: event.target.value }))}
+              />
+              <p id="reminder-phone-help" className="mt-1 text-xs text-secondary">Include the country code, for example +2348012345678.</p>
+            </div>
+          )}
+          {whatsappBlocked && (
+            <p className="feedback-message feedback-error sm:col-span-2" role="alert">
+              Enter a WhatsApp number in international format before saving, for example +2348012345678.
+            </p>
+          )}
           {error && <p className="feedback-message feedback-error sm:col-span-2" role="alert">{error}</p>}
           {message && <p className="feedback-message feedback-success sm:col-span-2" role="status">{message}</p>}
           <div className="sm:col-span-2">
-            <button type="submit" className="button-primary min-h-11 px-4 text-sm" disabled={saving}>
+            <button type="submit" className="button-primary min-h-11 px-4 text-sm" disabled={saving || whatsappBlocked}>
               {saving ? "Saving..." : "Save reminder settings"}
             </button>
           </div>

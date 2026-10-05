@@ -116,10 +116,6 @@ export async function PATCH(request: Request, { params }: Params) {
     return NextResponse.json({ error: "No supported fields to update" }, { status: 400 });
   }
 
-  if (shouldTouchLastContacted(body)) {
-    updatePayload.last_contacted_at = new Date().toISOString();
-  }
-
   const { data: currentLead, error: currentLeadError } = await supabaseAdmin!
     .from("leads")
     .select("name, company, status")
@@ -132,6 +128,13 @@ export async function PATCH(request: Request, { params }: Params) {
   }
   if (!currentLead) {
     return NextResponse.json({ error: "Lead not found" }, { status: 404 });
+  }
+
+  // Only a genuine stage move counts as contact. Re-submitting the stage the
+  // lead is already in is a no-op and must not reset the recency used by the
+  // inactive-lead alerts.
+  if (shouldTouchLastContacted(body) && body.status !== currentLead.status) {
+    updatePayload.last_contacted_at = new Date().toISOString();
   }
 
   const { data, error } = await supabaseAdmin!

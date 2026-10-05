@@ -1,72 +1,9 @@
 import { NextResponse } from "next/server";
 
 import { findInactiveLeads, parseThresholdDays, type InactiveLead } from "@/lib/inactive-leads";
+import { buildDigest, getLead, getTodayInLagos, getTomorrow, hasDigestContent, type ReminderTask } from "@/lib/reminder-digest";
 import { supabaseAdmin } from "@/lib/supabase";
 import type { LeadStatus } from "@/lib/types";
-
-type ReminderTask = {
-  id: string;
-  title: string;
-  due_date: string;
-  leads: { id: string; name: string; company: string; business_id: string } | Array<{ id: string; name: string; company: string; business_id: string }>;
-};
-
-
-function getTodayInLagos() {
-  const parts = new Intl.DateTimeFormat("en-CA", {
-    timeZone: "Africa/Lagos",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).formatToParts(new Date());
-  const value = Object.fromEntries(parts.map((part) => [part.type, part.value]));
-  return `${value.year}-${value.month}-${value.day}`;
-}
-
-function getTomorrow(date: string) {
-  const value = new Date(`${date}T12:00:00Z`);
-  value.setUTCDate(value.getUTCDate() + 1);
-  return value.toISOString().slice(0, 10);
-}
-
-function getLead(task: ReminderTask) {
-  return Array.isArray(task.leads) ? task.leads[0] : task.leads;
-}
-
-function formatTaskList(tasks: ReminderTask[], today: string) {
-  return tasks.map((task) => {
-    const lead = getLead(task);
-    const timing = task.due_date < today
-      ? `Overdue since ${task.due_date}`
-      : task.due_date === today
-        ? "Due today"
-        : "Due tomorrow";
-    return `• ${task.title} — ${lead.name} (${lead.company}), ${timing}`;
-  }).join("\n");
-}
-
-// WhatsApp template bodies are length-capped, so the list is ordered by
-// severity and the quiet-lead digest is appended only if there is room.
-function formatInactiveList(alerts: InactiveLead[], limit = 5) {
-  return alerts.slice(0, limit).map((alert) => `• ${alert.reason}`).join("\n");
-}
-
-function buildDigest(tasks: ReminderTask[], alerts: InactiveLead[], today: string) {
-  const blocks: string[] = [];
-
-  if (tasks.length) {
-    blocks.push(`Here are your open follow-ups due tomorrow or overdue:\n\n${formatTaskList(tasks, today)}`);
-  }
-  if (alerts.length) {
-    const subject = alerts.length === 1 ? "lead has" : "leads have";
-    blocks.push(
-      `${alerts.length} open ${subject} gone quiet inside your alert window:\n\n${formatInactiveList(alerts)}`,
-    );
-  }
-  blocks.push("Review your leads and tasks in BizPilot.");
-
-  return blocks.join("\n\n");
-}
 
 async function sendEmail(to: string, digest: string, hasTasks: boolean) {
   const response = await fetch("https://api.resend.com/emails", {
@@ -190,7 +127,7 @@ export async function GET(request: Request) {
     const profileTasks = dueTasks.filter((task) => getLead(task)?.business_id === profile.business_id);
     const profileAlerts = profile.business_id ? alertsByBusiness.get(profile.business_id) ?? [] : [];
     // A recipient with neither due tasks nor stale leads has nothing to be told.
-    if (!profileTasks.length && !profileAlerts.length) continue;
+    if (!hasDigestContent(profileTasks, profileAlerts)) continue;
 
     const digest = buildDigest(profileTasks, profileAlerts, today);
 

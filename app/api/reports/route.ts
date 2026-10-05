@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { requireWorkspace } from "@/lib/api-auth";
+import { startOfCurrentWeek } from "@/lib/reporting-window";
 import { supabaseAdmin } from "@/lib/supabase";
 
 const statuses = ["new", "contacted", "qualified", "proposal", "won", "lost"] as const;
@@ -39,12 +40,11 @@ export async function GET(request: Request) {
   const rows = leads ?? [];
   // Computed against the unfiltered workspace, so "this week" always means the
   // current week regardless of which reporting range is selected.
-  const weekStart = new Date(Date.now() - 7 * 86_400_000).toISOString();
   const { data: recentLeads, error: recentLeadsError } = await supabaseAdmin!
     .from("leads")
     .select("id")
     .eq("business_id", auth.context.businessId)
-    .gte("created_at", weekStart);
+    .gte("created_at", startOfCurrentWeek().toISOString());
 
   if (recentLeadsError) {
     return NextResponse.json({ error: "Sales reports could not be loaded." }, { status: 500 });
