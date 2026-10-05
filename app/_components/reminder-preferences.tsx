@@ -3,7 +3,7 @@
 import { useEffect, useState, type FormEvent } from "react";
 
 import { authorizedFetch } from "@/lib/supabase-browser";
-import { isValidReminderPhone } from "@/lib/reminder-preferences";
+import { describeReminderChannel, isValidReminderPhone } from "@/lib/reminder-preferences";
 
 type Preferences = {
   phone: string;
@@ -71,6 +71,8 @@ export function ReminderPreferences() {
   // A channel can always be chosen. Delivery waits on provider credentials,
   // but the choice itself must not be blocked, otherwise the setting cannot be
   // set up before Resend or Meta are wired up.
+  const emailState = describeReminderChannel("email", preferences.configured);
+  const whatsappState = describeReminderChannel("whatsapp", preferences.configured);
   const whatsappBlocked = preferences.whatsappEnabled && !isValidReminderPhone(preferences.phone);
 
   return (
@@ -92,8 +94,8 @@ export function ReminderPreferences() {
             <span>
               <span className="block font-medium">Email reminders</span>
               <span className="block text-xs text-secondary">A daily digest of tasks due tomorrow, overdue tasks, and quiet leads.</span>
-              <span className={preferences.configured.email ? "reminder-channel-status" : "reminder-channel-status reminder-channel-status-pending"}>
-                {preferences.configured.email ? "Ready to send" : "Not configured yet: add Resend keys to send"}
+              <span className={emailState.deliverable ? "reminder-channel-status" : "reminder-channel-status reminder-channel-status-pending"}>
+                {emailState.status}
               </span>
             </span>
           </label>
@@ -106,8 +108,8 @@ export function ReminderPreferences() {
             <span>
               <span className="block font-medium">WhatsApp reminders</span>
               <span className="block text-xs text-secondary">The same daily digest, sent to your number in international format.</span>
-              <span className={preferences.configured.whatsapp ? "reminder-channel-status" : "reminder-channel-status reminder-channel-status-pending"}>
-                {preferences.configured.whatsapp ? "Ready to send" : "Not configured yet: add Meta API keys and an approved template"}
+              <span className={whatsappState.deliverable ? "reminder-channel-status" : "reminder-channel-status reminder-channel-status-pending"}>
+                {whatsappState.status}
               </span>
             </span>
           </label>

@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  describeReminderChannel,
   isValidReminderPhone,
   normalizeReminderPhone,
   selectedReminderChannels,
@@ -36,4 +37,44 @@ test("email and WhatsApp are selected independently", () => {
   assert.deepEqual(selectedReminderChannels({ emailEnabled: true, whatsappEnabled: false }), ["email"]);
   assert.deepEqual(selectedReminderChannels({ emailEnabled: false, whatsappEnabled: true }), ["whatsapp"]);
   assert.deepEqual(selectedReminderChannels({ emailEnabled: false, whatsappEnabled: false }), []);
+});
+
+test("a channel stays selectable when its provider is not configured", () => {
+  // Regression guard: the UI once disabled both checkboxes until Resend and
+  // Meta existed, which made the preference impossible to set at all.
+  const none = { email: false, whatsapp: false };
+  for (const channel of ["email", "whatsapp"] as const) {
+    assert.equal(describeReminderChannel(channel, none).selectable, true, channel);
+  }
+  // Only one provider present must not disable the other channel either.
+  assert.equal(describeReminderChannel("email", { email: false, whatsapp: true }).selectable, true);
+  assert.equal(describeReminderChannel("whatsapp", { email: false, whatsapp: true }).selectable, true);
+});
+
+test("deliverability follows provider configuration", () => {
+  const none = { email: false, whatsapp: false };
+  assert.equal(describeReminderChannel("email", none).deliverable, false);
+  assert.equal(describeReminderChannel("whatsapp", none).deliverable, false);
+
+  const both = { email: true, whatsapp: true };
+  assert.equal(describeReminderChannel("email", both).deliverable, true);
+  assert.equal(describeReminderChannel("whatsapp", both).deliverable, true);
+
+  const emailOnly = { email: true, whatsapp: false };
+  assert.equal(describeReminderChannel("email", emailOnly).deliverable, true);
+  assert.equal(describeReminderChannel("whatsapp", emailOnly).deliverable, false);
+});
+
+test("the status line names exactly what is missing", () => {
+  const none = { email: false, whatsapp: false };
+  assert.equal(
+    describeReminderChannel("email", none).status,
+    "Not configured yet: add Resend keys to send",
+  );
+  assert.equal(
+    describeReminderChannel("whatsapp", none).status,
+    "Not configured yet: add Meta API keys and an approved template to send",
+  );
+  assert.equal(describeReminderChannel("email", { email: true, whatsapp: false }).status, "Ready to send");
+  assert.equal(describeReminderChannel("whatsapp", { email: false, whatsapp: true }).status, "Ready to send");
 });
